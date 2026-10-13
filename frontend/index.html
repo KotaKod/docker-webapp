@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOps Practice 2 | Items Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="badge">Docker Compose Stack</div>
+            <h1>База данных записей</h1>
+            <p class="subtitle">Go Backend &bull; PostgreSQL &bull; Docker Alpine</p>
+        </header>
+
+        <section class="card status-panel">
+            <div class="status-indicator">
+                <span id="status-dot" class="dot"></span>
+                <span id="status-text">Проверка подключения...</span>
+            </div>
+            <button id="refresh-btn" class="btn" title="Перезапросить данные">Обновить данные</button>
+        </section>
+
+        <section class="card">
+            <h2>Список элементов (`/api/items`)</h2>
+            <div id="loader" class="loader hidden">Загрузка данных...</div>
+            <ul id="items-list" class="items-list">
+                <!-- Сюда JS подставит элементы из базы -->
+            </ul>
+            <div id="empty-state" class="empty-state hidden">Записей пока нет</div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
