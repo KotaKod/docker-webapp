@@ -23,7 +23,7 @@ jobs:
         shell: powershell
         run: |
           Write-Host "Creating .env file from GitHub Secrets..."
-          @"
+          $envContent = @"
           # Database configuration
           DB_HOST=${{ secrets.DB_HOST }}
           DB_PORT=${{ secrets.DB_PORT }}
@@ -37,8 +37,9 @@ jobs:
           APP_SECRET=${{ secrets.APP_SECRET }}
           API_KEY=${{ secrets.API_KEY }}
           # Docker configuration
-          COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)
-          "@ | Set-Content -Path .env -Encoding utf8
+          COMPOSE_PROJECT_NAME=myapp
+          "@
+          [System.IO.File]::WriteAllText("$PWD\.env", $envContent, [System.Text.Encoding]::UTF8)
           Write-Host ".env file created successfully"
           Write-Host "Contents (masked):"
           (Get-Content .env) -replace '=.*', '=***'
@@ -50,7 +51,7 @@ jobs:
           docker compose down -v
           docker compose up -d --build
           Write-Host "Waiting for services to start..."
-          Start-Sleep -Seconds 15
+          Start-Sleep -Seconds 20
           Write-Host "Checking container status..."
           docker compose ps
 
@@ -112,7 +113,7 @@ jobs:
         run: |
           Write-Host "Creating test report..."
           $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-          @"
+          $report = @"
           # Deployment Test Report
           Date: $currentDate
           Application: Healthy
@@ -126,7 +127,8 @@ jobs:
           ## Test Results
           - Database records: $($env:DB_COUNT)
           - Web API records: $($env:WEB_COUNT)
-          "@ | Set-Content -Path test-report.md -Encoding utf8
+          "@
+          [System.IO.File]::WriteAllText("$PWD\test-report.md", $report, [System.Text.Encoding]::UTF8)
 
       - name: Save Docker logs
         if: always()
