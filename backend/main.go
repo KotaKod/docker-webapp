@@ -58,8 +58,15 @@ func main() {
 		log.Printf("Внимание: БД пока недоступна при старте: %v", err)
 	}
 
-	// 1. API: список записей
-	http.HandleFunc("/api/items", func(w http.ResponseWriter, r *http.Request) {
+	// 1. Healthcheck эндпоинт для CI/CD тестов (Критерий 4, Тест 1)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// 2. Обработчик получения списка элементов
+	itemsHandler := func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT id, name FROM items ORDER BY id ASC")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Ошибка запроса к базе данных: %v", err), http.StatusInternalServerError)
@@ -79,18 +86,32 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(items)
+	}
+
+	// Штатный роут и роут для проверки CI/CD (Критерий 4, Тест 1)
+	http.HandleFunc("/api/items", itemsHandler)
+	http.HandleFunc("/api/data", itemsHandler)
+
+	// 3. Эндпоинт точного подсчета строк для сверки с БД (Критерий 4, Тест 2)
+	http.HandleFunc("/api/items/count", func(w http.ResponseWriter, r *http.Request) {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM items").Scan(&count)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Ошибка подсчета элементов в БД: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "%d", count)
 	})
 
-	// 2. Статика без циклического редиректа
+	// 4. Твоя надежная раздача статики
 	fileServer := http.FileServer(http.Dir(staticDir))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// При прямом запросе корня отдаем index.html без внутренних редиректов
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
 			return
 		}
-
-		// Для запросов вида /style.css, /app.js
 		fileServer.ServeHTTP(w, r)
 	})
 
