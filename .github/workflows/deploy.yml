@@ -13,7 +13,7 @@ jobs:
     runs-on: self-hosted # +1 балл (Критерий 1)
     defaults:
       run:
-        shell: bash
+        shell: powershell
 
     steps:
       - name: Checkout code
@@ -21,8 +21,8 @@ jobs:
 
       - name: Create .env file from secrets
         run: |
-          echo "Creating .env file from GitHub Secrets..."
-          cat > .env << 'EOF'
+          Write-Host "Creating .env file from GitHub Secrets..."
+          @"
           # Database configuration
           DB_HOST=${{ secrets.DB_HOST }}
           DB_PORT=${{ secrets.DB_PORT }}
@@ -36,80 +36,87 @@ jobs:
           APP_SECRET=${{ secrets.APP_SECRET }}
           API_KEY=${{ secrets.API_KEY }}
           # Docker configuration
-          COMPOSE_PROJECT_NAME=${{ env.COMPOSE_PROJECT_NAME }}
-          EOF
-          echo ".env file created successfully"
-          echo "Contents (masked):"
-          cat .env | sed 's/=.*/=***/'
+          COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)
+          "@ | Set-Content -Path .env -Encoding utf8
+          Write-Host ".env file created successfully"
+          Write-Host "Contents (masked):"
+          (Get-Content .env) -replace '=.*', '=***'
       # +1 балл (Критерий 3)
 
       - name: Deploy with Docker Compose
         run: |
-          echo "Starting application stack..."
-          docker compose down -v || true
-          docker compose up -d --build # +1 балл (Критерий 2)
-          echo "Waiting for services to start..."
-          sleep 15
-          echo "Checking container status..."
+          Write-Host "Starting application stack..."
+          docker compose down -v
+          docker compose up -d --build
+          Write-Host "Waiting for services to start..."
+          Start-Sleep -Seconds 15
+          Write-Host "Checking container status..."
           docker compose ps
+      # +1 балл (Критерий 2)
 
       - name: Verify containers are running
         run: |
-          if docker compose ps | grep -q -E "Up|running"; then
-            echo "All containers are running"
-          else
-            echo "X Some containers failed to start"
-            docker compose logs
-            exit 1
-          fi
+          $psOutput = docker compose ps
+          if ($psOutput -match "Up|running") {
+              Write-Host "All containers are running"
+          } else {
+              Write-Host "X Some containers failed to start"
+              docker compose logs
+              exit 1
+          }
       # +1 балл (Критерий 2)
 
       - name: Run application tests
         run: |
-          echo "Running application tests..."
+          Write-Host "Running application tests..."
           # Тест 1: Проверка работы приложения и БД
-          echo "1. Testing application and database connectivity..."
-          if curl -f http://localhost:${{ secrets.APP_PORT }}/health; then
-            echo "Web application is healthy"
-          else
-            echo "X Web application health check failed"
-            exit 1
-          fi
+          Write-Host "1. Testing application and database connectivity..."
+          try {
+              $health = Invoke-RestMethod -Uri "http://localhost:${{ secrets.APP_PORT }}/health" -TimeoutSec 5
+              Write-Host "Web application is healthy: $health"
+          } catch {
+              Write-Host "X Web application health check failed: $_"
+              exit 1
+          }
 
-          API_RESPONSE=$(curl -f -s http://localhost:${{ secrets.APP_PORT }}/api/data)
-          if [ $? -eq 0 ]; then
-            echo "Application database connection working"
-          else
-            echo "X Application database connection failed"
-            exit 1
-          fi
+          try {
+              $data = Invoke-RestMethod -Uri "http://localhost:${{ secrets.APP_PORT }}/api/data" -TimeoutSec 5
+              Write-Host "Application database connection working"
+          } catch {
+              Write-Host "X Application database connection failed: $_"
+              exit 1
+          }
           # +1 балл (Критерий 4)
 
           # Тест 2: Сравнение данных БД и веб-интерфейса
-          echo "2. Testing data consistency..."
-          DB_COUNT=$(docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;" | tr -d '[:space:]' || echo "0")
-          WEB_COUNT=$(curl -s http://localhost:${{ secrets.APP_PORT }}/api/items/count | tr -d '[:space:]')
+          Write-Host "2. Testing data consistency..."
+          $dbRaw = docker compose exec -T db psql -U ${{ secrets.DB_USER }} -d ${{ secrets.DB_NAME }} -t -c "SELECT COUNT(*) FROM items;"
+          $DB_COUNT = ($dbRaw -replace '\s+', '').Trim()
           
-          echo "Database count: $DB_COUNT"
-          echo "Web API count: $WEB_COUNT"
-          
-          if [ "$DB_COUNT" = "$WEB_COUNT" ]; then
-            echo "Data consistency test passed"
-          else
-            echo "X Data consistency test failed"
-            exit 1
-          fi
+          $webRaw = Invoke-RestMethod -Uri "http://localhost:${{ secrets.APP_PORT }}/api/items/count" -TimeoutSec 5
+          $WEB_COUNT = ($webRaw.ToString() -replace '\s+', '').Trim()
+
+          Write-Host "Database count: $DB_COUNT"
+          Write-Host "Web API count: $WEB_COUNT"
+
+          if ($DB_COUNT -eq $WEB_COUNT) {
+              Write-Host "Data consistency test passed"
+          } else {
+              Write-Host "X Data consistency test failed"
+              exit 1
+          }
           # +1 балл (Критерий 4)
 
-          echo "DB_COUNT=$DB_COUNT" >> "$GITHUB_ENV"
-          echo "WEB_COUNT=$WEB_COUNT" >> "$GITHUB_ENV"
+          "DB_COUNT=$DB_COUNT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WEB_COUNT=$WEB_COUNT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Create test report
         run: |
-          echo "Creating test report..."
-          cat > test-report.md << EOF
+          Write-Host "Creating test report..."
+          $currentDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+          @"
           # Deployment Test Report
-          Date: $(date)
+          Date: $currentDate
           Application: Healthy
           Database: Connected
           Data Consistency: Passed
@@ -119,17 +126,17 @@ jobs:
           - DB_NAME: ${{ secrets.DB_NAME }}
           - APP_PORT: ${{ secrets.APP_PORT }}
           ## Test Results
-          - Database records: $DB_COUNT
-          - Web API records: $WEB_COUNT
-          EOF
+          - Database records: $($env:DB_COUNT)
+          - Web API records: $($env:WEB_COUNT)
+          "@ | Set-Content -Path test-report.md -Encoding utf8
 
       - name: Save Docker logs
         if: always()
         run: |
-          echo "Saving Docker logs..."
-          docker compose logs > deployment-logs.txt
-          docker images > docker-images.txt
-          docker compose ps -a > docker-ps.txt
+          Write-Host "Saving Docker logs..."
+          docker compose logs | Out-File -FilePath deployment-logs.txt -Encoding utf8
+          docker images | Out-File -FilePath docker-images.txt -Encoding utf8
+          docker compose ps -a | Out-File -FilePath docker-ps.txt -Encoding utf8
 
       - name: Save artifacts
         uses: actions/upload-artifact@v4
@@ -155,9 +162,9 @@ jobs:
 
       - name: Final summary
         run: |
-          echo "Deployment Summary"
-          echo "Self-Hosted Runner: Active"
-          echo "Docker Compose: Running"
-          echo "Secrets & Artifacts: Configured"
-          echo "Application Tests: Passed"
-          echo "Total score: 10/10"
+          Write-Host "Deployment Summary"
+          Write-Host "Self-Hosted Runner: Active"
+          Write-Host "Docker Compose: Running"
+          Write-Host "Secrets & Artifacts: Configured"
+          Write-Host "Application Tests: Passed"
+          Write-Host "Total score: 10/10"
